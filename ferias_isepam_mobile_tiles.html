@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <title>Missão: Férias no ISEPAM — Mobile</title>
+  <style>
+    :root{
+      --tile: 40px;   /* será recalculado via JS */
+      --border: 10px; /* borda do tabuleiro */
+    }
+    *{ box-sizing: border-box; }
+    html, body{
+      margin:0;
+      padding:0;
+      background:#222;
+      color:#fff;
+      font-family: Arial, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+    h1{
+      color:#FFD700;
+      margin:10px 8px 0;
+      font-size: clamp(18px, 4.4vw, 28px);
+      text-align:center;
+    }
+    #ui{
+      font-size: clamp(14px, 3.8vw, 18px);
+      display:flex;
+      justify-content:center;
+      gap: 16px;
+      flex-wrap: wrap;
+      width: min(94vw, 880px);
+      margin: 6px auto 8px;
+      text-align:center;
+    }
+    #top-buttons{
+      position: sticky;
+      top: 0;
+      display:flex; gap:8px;
+      justify-content: flex-end;
+      width: min(94vw, 880px);
+      margin: 6px auto 2px;
+      z-index: 10;
+    }
+    .top-btn{
+      background:#FFD700; color:#333; border:0; border-radius:10px;
+      padding:8px 12px; font-weight:bold; font-size:14px;
+    }
+
+    /* Contêiner do jogo (tamanho real baseado em --tile) */
+    #game-wrapper{
+      width: calc(var(--border)*2 + var(--tile) * 20);
+      height: calc(var(--border)*2 + var(--tile) * 10);
+      margin: 4px auto 16px;
+      position: relative;
+    }
+    #game-board{
+      position: absolute;
+      inset: 0;
+      margin: 0 auto;
+      background:#555;
+      border: var(--border) solid #8B4513;
+      display: grid;
+      grid-template-columns: repeat(20, 1fr);
+      grid-template-rows: repeat(10, 1fr);
+      touch-action: none;
+      overflow: hidden;
+    }
+    .cell{
+      width: var(--tile);
+      height: var(--tile);
+    }
+    .wall{ background:#D2B48C; border:1px solid #8B4513; }
+    .path{ background:#FAFAD2; }
+
+    .entity{
+      position:absolute;
+      width: var(--tile);
+      height: var(--tile);
+      font-size: calc(var(--tile) * 0.75);
+      display:flex; align-items:center; justify-content:center;
+      transition:left 0.08s linear, top 0.08s linear;
+      user-select:none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #player{ z-index:10; }
+    .tarefa{ font-size: calc(var(--tile) * 0.6); opacity:.9; z-index:2; }
+    .cafe{ font-size: calc(var(--tile) * 0.8); animation: piscar 1s infinite; z-index:3; }
+    @keyframes piscar{ 50%{ transform: scale(1.15); } }
+    .inimigo{ z-index:5; }
+    .vulneravel{ opacity:.6; animation:none; z-index:4; }
+
+    #popup{
+      position:fixed; inset:0;
+      background: rgba(0,0,0,.7);
+      display:none; justify-content:center; align-items:center;
+      z-index:100;
+      padding:16px;
+    }
+    #popup-content{
+      background:#fff; color:#333;
+      padding:28px;
+      border-radius:12px;
+      box-shadow:0 0 30px #FFD700;
+      text-align:center;
+      max-width:min(92vw, 520px);
+    }
+    #popup-content h2{ color:#D9534F; margin-top:0; }
+    #popup-content button{
+      margin-top:16px; padding:10px 20px; font-size:18px; cursor:pointer; border-radius:10px; border:0;
+      background:#FFD700; color:#333; font-weight:bold;
+    }
+
+    /* D-Pad fixo no rodapé */
+    #touch-controls{
+      position: fixed;
+      left: 50%; bottom: env(safe-area-inset-bottom, 12px);
+      transform: translateX(-50%);
+      display: grid;
+      grid-template-columns: 64px 64px 64px;
+      grid-template-rows: 64px 64px 64px;
+      gap: 8px;
+      z-index: 200;
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+      filter: drop-shadow(0 2px 6px rgba(0,0,0,.35));
+    }
+    .tc-btn{
+      background: rgba(255,255,255,0.15);
+      border: 2px solid #FFD700;
+      color: #FFD700;
+      font-size: 22px;
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .tc-btn:active{ background: rgba(255,255,255,0.28); }
+    #tc-up{ grid-column:2; grid-row:1;}
+    #tc-left{ grid-column:1; grid-row:2;}
+    #tc-right{ grid-column:3; grid-row:2;}
+    #tc-down{ grid-column:2; grid-row:3;}
+
+    /* Esconde D-pad em telas largas */
+    @media (min-width: 900px){ #touch-controls{ display:none; } }
+
+    /* Espaço extra para não cobrir conteúdo ao rolar (fallback) */
+    .bottom-spacer{ height: 260px; }
+  </style>
+</head>
+<body>
+  <h1>Missão: Férias no ISEPAM</h1>
+  <div id="ui">
+    <span id="score">Tarefas Concluídas: 0</span>
+    <span id="vidas">Dias Restantes (Vidas): 3</span>
+  </div>
+
+  <div id="top-buttons">
+    <button id="btn-restart" class="top-btn">Reiniciar</button>
+    <button id="btn-toggle-controls" class="top-btn">Ocultar Controles</button>
+  </div>
+
+  <div id="game-wrapper">
+    <div id="game-board"></div>
+  </div>
+
+  <div id="popup">
+    <div id="popup-content">
+      <h2 id="popup-message">...</h2>
+      <button id="restart-button">Tentar Novamente</button>
+    </div>
+  </div>
+
+  <!-- D-pad de toque -->
+  <div id="touch-controls" aria-label="Controles de toque">
+    <div class="tc-btn" id="tc-up"    data-dx="0"  data-dy="-1">▲</div>
+    <div class="tc-btn" id="tc-left"  data-dx="-1" data-dy="0">◀</div>
+    <div class="tc-btn" id="tc-right" data-dx="1"  data-dy="0">▶</div>
+    <div class="tc-btn" id="tc-down"  data-dx="0"  data-dy="1">▼</div>
+  </div>
+
+  <div class="bottom-spacer" aria-hidden="true"></div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const root = document.documentElement;
+      const gameWrapper = document.getElementById('game-wrapper');
+      const gameBoard = document.getElementById('game-board');
+      const scoreDisplay = document.getElementById('score');
+      const vidasDisplay = document.getElementById('vidas');
+      const popup = document.getElementById('popup');
+      const popupMessage = document.getElementById('popup-message');
+      const restartButton = document.getElementById('restart-button');
+      const btnRestartTop = document.getElementById('btn-restart');
+      const btnToggleControls = document.getElementById('btn-toggle-controls');
+      const touchControls = document.getElementById('touch-controls');
+
+      const numCols = 20;
+      const numRows = 10;
+      const border = 10; // px
+
+      // Mapa (10 x 20)
+      const map = [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,9,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,2,1],
+        [1,0,1,1,1,0,1,1,0,1,1,0,1,1,1,0,1,1,0,1],
+        [1,0,1,1,1,0,1,1,0,0,0,0,1,1,1,0,1,1,0,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,1,1,0,1,1,0,1,1,1,1,0,1,1,0,1,1,0,1],
+        [1,0,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,0,1],
+        [1,1,1,1,0,1,1,1,1,3,3,1,1,1,1,0,1,1,1,1],
+        [1,2,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,2,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+      ];
+
+      // Estado
+      let tileSize = 40;
+      let player;
+      let playerGridPos = { x: 1, y: 1 };
+      let inimigos = [];
+      const inimigoTipos = [
+        { emoji: '⏰', msg: 'O DP não deixou você entrar de férias!' },
+        { emoji: '📋', msg: 'A Direção não deixou você entrar de férias!' },
+        { emoji: '👦', msg: 'O Aluno não deixou você entrar de férias!' },
+        { emoji: '📱', msg: 'O Grupo de Pais não deixou você entrar de férias!' }
+      ];
+      let inimigoBasePos = { x: 9, y: 7 };
+      let tarefas = [];
+      let cafes = [];
+      let totalTarefas = 0;
+      let score = 0;
+      let vidas = 3;
+      let isPowerUpActive = false;
+      let powerUpTimer;
+      let gameActive = true;
+      let moveTimeoutId = null;
+      let moveIntervalId = null;
+      let inimigoMoveInterval = null;
+
+      // ------- Medidas & Tile -------
+      function computeTile(){
+        const vv = window.visualViewport;
+        const vw = vv ? vv.width : window.innerWidth;
+        const vh = vv ? vv.height : window.innerHeight;
+
+        const h1 = document.querySelector('h1').offsetHeight;
+        const uiH = document.getElementById('ui').offsetHeight;
+        const topH = document.getElementById('top-buttons').offsetHeight || 0;
+        const dpadVisible = getComputedStyle(touchControls).display !== 'none';
+        const dpadH = dpadVisible ? touchControls.getBoundingClientRect().height + 16 : 0;
+
+        const verticalPad = 24; // margens
+        const availableH = Math.max(140, vh - (h1 + uiH + topH + dpadH + verticalPad));
+        const availableW = Math.max(200, vw - 24);
+
+        const rawTile = Math.floor(Math.min( (availableW - border*2) / numCols, (availableH - border*2) / numRows ));
+        // Limita para manter emojis legíveis
+        return Math.max(22, Math.min(rawTile, 48));
+      }
+
+      function applyTileSize(){
+        tileSize = computeTile();
+        root.style.setProperty('--tile', tileSize + 'px');
+        // Ajusta wrapper para o tamanho exato
+        gameWrapper.style.width  = (border*2 + tileSize * numCols) + 'px';
+        gameWrapper.style.height = (border*2 + tileSize * numRows) + 'px';
+        // Reposiciona entidades
+        layoutEntities();
+      }
+
+      function layoutEntities(){
+        if(player){
+          player.style.left = (playerGridPos.x * tileSize) + 'px';
+          player.style.top  = (playerGridPos.y * tileSize) + 'px';
+        }
+        inimigos.forEach(i=>{
+          i.el.style.left = (i.x * tileSize) + 'px';
+          i.el.style.top  = (i.y * tileSize) + 'px';
+        });
+        tarefas.forEach(t=>{
+          t.el.style.left = (t.x * tileSize) + 'px';
+          t.el.style.top  = (t.y * tileSize) + 'px';
+        });
+        cafes.forEach(c=>{
+          c.el.style.left = (c.x * tileSize) + 'px';
+          c.el.style.top  = (c.y * tileSize) + 'px';
+        });
+      }
+
+      // ------- Construção -------
+      function criarElemento(className, emoji, gridX, gridY){
+        const el = document.createElement('div');
+        el.className = 'entity ' + className;
+        el.textContent = emoji;
+        el.style.left = (gridX * tileSize) + 'px';
+        el.style.top = (gridY * tileSize) + 'px';
+        return el;
+      }
+
+      function desenharMapa(){
+        gameBoard.innerHTML = '';
+        tarefas = []; cafes = []; totalTarefas = 0;
+
+        for(let y=0;y<numRows;y++){
+          for(let x=0;x<numCols;x++){
+            const cell = document.createElement('div');
+            cell.classList.add('cell');
+            const cellType = map[y][x];
+            if(cellType === 1) cell.classList.add('wall');
+            else cell.classList.add('path');
+            gameBoard.appendChild(cell);
+          }
+        }
+
+        for(let y=0;y<numRows;y++){
+          for(let x=0;x<numCols;x++){
+            const cellType = map[y][x];
+            if(cellType === 0){
+              const tarefa = criarElemento('tarefa', Math.random() > 0.5 ? '📄' : '💻', x, y);
+              gameBoard.appendChild(tarefa);
+              tarefas.push({ el:tarefa, x, y, collected:false });
+              totalTarefas++;
+            }else if(cellType === 2){
+              const cafe = criarElemento('cafe', '☕', x, y);
+              gameBoard.appendChild(cafe);
+              cafes.push({ el:cafe, x, y, collected:false });
+            }else if(cellType === 9){
+              playerGridPos = { x, y };
+            }
+          }
+        }
+      }
+
+      function iniciarJogo(){
+        gameActive = true;
+        score = 0; vidas = 3; isPowerUpActive = false;
+
+        clearTimeout(powerUpTimer);
+        clearInterval(inimigoMoveInterval);
+        clearTimeout(moveTimeoutId);
+        clearInterval(moveIntervalId);
+        moveTimeoutId = null; moveIntervalId = null;
+
+        applyTileSize();      // calcula tile antes de desenhar mapa
+        desenharMapa();
+
+        player = criarElemento('', '🏃‍♀️', playerGridPos.x, playerGridPos.y);
+        player.id = 'player';
+        gameBoard.appendChild(player);
+
+        inimigos = [];
+        const inimigoTiposLocal = [...inimigoTipos]; // cópia
+        inimigoTiposLocal.forEach((tipo, i)=>{
+          const x = inimigoBasePos.x + (i % 2);
+          const y = inimigoBasePos.y + Math.floor(i/2);
+          const el = criarElemento('inimigo', tipo.emoji, x, y);
+          inimigos.push({ el, tipo, x, y, dir:'up', vulneravel:false });
+          gameBoard.appendChild(el);
+        });
+
+        atualizarUI();
+        popup.style.display = 'none';
+
+        inimigoMoveInterval = setInterval(moverInimigos, 300);
+      }
+
+      // ------- Lógica -------
+      function atualizarUI(){
+        scoreDisplay.textContent = `Tarefas Concluídas: ${score} / ${totalTarefas}`;
+        vidasDisplay.textContent = `Dias Restantes (Vidas): ${vidas}`;
+      }
+      function podeMover(x,y){
+        if (x<0 || x>=numCols || y<0 || y>=numRows) return false;
+        return map[y][x] !== 1;
+      }
+      function moverJogador(dx, dy){
+        if(!gameActive) return;
+        const nx = playerGridPos.x + dx;
+        const ny = playerGridPos.y + dy;
+
+        if(dx>0) player.style.transform = 'scaleX(1)';
+        if(dx<0) player.style.transform = 'scaleX(-1)';
+
+        if(podeMover(nx, ny)){
+          playerGridPos.x = nx; playerGridPos.y = ny;
+          player.style.left = (nx * tileSize) + 'px';
+          player.style.top  = (ny * tileSize) + 'px';
+          checarColeta();
+          checarColisaoInimigo();
+        }
+      }
+
+      function moverInimigos(){
+        if(!gameActive) return;
+        inimigos.forEach(inimigo=>{
+          let { x, y, dir } = inimigo;
+          let moves = [];
+          if(podeMover(x, y-1)) moves.push({dx:0, dy:-1, dir:'up'});
+          if(podeMover(x, y+1)) moves.push({dx:0, dy: 1, dir:'down'});
+          if(podeMover(x-1, y)) moves.push({dx:-1,dy: 0, dir:'left'});
+          if(podeMover(x+1, y)) moves.push({dx: 1,dy: 0, dir:'right'});
+
+          const oposto = { up:'down', down:'up', left:'right', right:'left' };
+          if(moves.length>1) moves = moves.filter(m=>m.dir !== oposto[dir]);
+
+          let chosen = null;
+          if(inimigo.vulneravel){
+            let maxD=-1;
+            moves.forEach(m=>{
+              const d = Math.abs(x+m.dx - playerGridPos.x) + Math.abs(y+m.dy - playerGridPos.y);
+              if(d>maxD){ maxD=d; chosen=m; }
+            });
+          }else{
+            let minD=Infinity;
+            moves.forEach(m=>{
+              const d = Math.abs(x+m.dx - playerGridPos.x) + Math.abs(y+m.dy - playerGridPos.y);
+              if(d<minD){ minD=d; chosen=m; }
+            });
+          }
+          if(!chosen && moves.length>0) chosen = moves[Math.floor(Math.random()*moves.length)];
+
+          if(chosen){
+            inimigo.x += chosen.dx;
+            inimigo.y += chosen.dy;
+            inimigo.dir = chosen.dir;
+          }
+          inimigo.el.style.left = (inimigo.x * tileSize) + 'px';
+          inimigo.el.style.top  = (inimigo.y * tileSize) + 'px';
+        });
+        checarColisaoInimigo();
+      }
+
+      function checarColeta(){
+        for(let i=tarefas.length-1;i>=0;i--){
+          const t = tarefas[i];
+          if(!t.collected && t.x===playerGridPos.x && t.y===playerGridPos.y){
+            t.collected = true;
+            t.el.remove();
+            tarefas.splice(i,1);
+            score++;
+            atualizarUI();
+          }
+        }
+        for(let i=cafes.length-1;i>=0;i--){
+          const c = cafes[i];
+          if(!c.collected && c.x===playerGridPos.x && c.y===playerGridPos.y){
+            c.collected = true;
+            c.el.remove();
+            cafes.splice(i,1);
+            ativarPowerUp();
+          }
+        }
+        if(tarefas.length===0){
+          mostrarPopup("PARABÉNS! Você concluiu tudo e conseguiu suas férias!", true);
+        }
+      }
+
+      function checarColisaoInimigo(){
+        if(!gameActive) return;
+        inimigos.forEach(inimigo=>{
+          if(inimigo.x===playerGridPos.x && inimigo.y===playerGridPos.y){
+            if(inimigo.vulneravel){
+              score += 10;
+              inimigo.x = inimigoBasePos.x;
+              inimigo.y = inimigoBasePos.y;
+              inimigo.el.style.left = (inimigo.x * tileSize) + 'px';
+              inimigo.el.style.top  = (inimigo.y * tileSize) + 'px';
+              atualizarUI();
+            }else{
+              vidas--;
+              atualizarUI();
+              clearTimeout(moveTimeoutId);
+              clearInterval(moveIntervalId);
+              moveTimeoutId = null; moveIntervalId = null;
+              if(vidas<=0){
+                mostrarPopup(inimigo.tipo.msg + " Você ficou sem férias...", true);
+              }else{
+                mostrarPopup(inimigo.tipo.msg, false);
+                playerGridPos = { x:1, y:1 };
+                player.style.left = (playerGridPos.x * tileSize) + 'px';
+                player.style.top  = (playerGridPos.y * tileSize) + 'px';
+              }
+            }
+          }
+        });
+      }
+
+      function ativarPowerUp(){
+        clearTimeout(powerUpTimer);
+        isPowerUpActive = true;
+        inimigos.forEach(i=>{
+          i.vulneravel = true;
+          i.el.textContent = '😴';
+          i.el.classList.add('vulneravel');
+        });
+        powerUpTimer = setTimeout(()=>{
+          isPowerUpActive = false;
+          inimigos.forEach(i=>{
+            i.vulneravel = false;
+            i.el.textContent = i.tipo.emoji;
+            i.el.classList.remove('vulneravel');
+          });
+        }, 7000);
+      }
+
+      function mostrarPopup(msg, isFinal){
+        gameActive = false;
+        popupMessage.textContent = msg;
+        popup.style.display = 'flex';
+        restartButton.textContent = isFinal ? "Jogar Novamente" : "Continuar";
+      }
+
+      // ------- Controles: teclado -------
+      document.addEventListener('keydown', e=>{
+        if(!gameActive) return;
+        if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){
+          e.preventDefault();
+          clearTimeout(moveTimeoutId);
+          clearInterval(moveIntervalId);
+          moveTimeoutId = null; moveIntervalId = null;
+
+          let dx=0, dy=0;
+          if(e.key==='ArrowUp') dy=-1;
+          if(e.key==='ArrowDown') dy=1;
+          if(e.key==='ArrowLeft') dx=-1;
+          if(e.key==='ArrowRight') dx=1;
+
+          moverJogador(dx,dy);
+          moveTimeoutId = setTimeout(()=>{
+            moveIntervalId = setInterval(()=>moverJogador(dx,dy), 120);
+          }, 150);
+        }
+      });
+      document.addEventListener('keyup', e=>{
+        if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){
+          clearTimeout(moveTimeoutId);
+          clearInterval(moveIntervalId);
+          moveTimeoutId = null; moveIntervalId = null;
+        }
+      });
+
+      // ------- Controles: D-pad -------
+      function startTouchMove(dx, dy){
+        if(!gameActive) return;
+        clearTimeout(moveTimeoutId);
+        clearInterval(moveIntervalId);
+        moveTimeoutId = null; moveIntervalId = null;
+        moverJogador(dx, dy);
+        moveTimeoutId = setTimeout(()=>{
+          moveIntervalId = setInterval(()=>moverJogador(dx,dy), 120);
+        }, 150);
+      }
+      function stopTouchMove(){
+        clearTimeout(moveTimeoutId);
+        clearInterval(moveIntervalId);
+        moveTimeoutId = null; moveIntervalId = null;
+      }
+      function wireTouchControls(){
+        const controls = document.querySelectorAll('#touch-controls .tc-btn');
+        const onPress = (e)=>{
+          e.preventDefault();
+          const btn = e.currentTarget;
+          const dx = parseInt(btn.getAttribute('data-dx'), 10);
+          const dy = parseInt(btn.getAttribute('data-dy'), 10);
+          startTouchMove(dx, dy);
+        };
+        const onRelease = (e)=>{ e.preventDefault(); stopTouchMove(); };
+
+        controls.forEach(btn=>{
+          btn.addEventListener('touchstart', onPress, { passive:false });
+          btn.addEventListener('touchend', onRelease, { passive:false });
+          btn.addEventListener('touchcancel', onRelease, { passive:false });
+          btn.addEventListener('touchmove', (e)=>e.preventDefault(), { passive:false });
+
+          btn.addEventListener('mousedown', onPress);
+          btn.addEventListener('mouseup', onRelease);
+          btn.addEventListener('mouseleave', onRelease);
+        });
+
+        document.addEventListener('touchend', onRelease, { passive:false });
+        document.addEventListener('mouseup', onRelease);
+      }
+
+      // ------- Ajustes responsivos -------
+      function onResizeReflow(){
+        applyTileSize();
+      }
+      window.addEventListener('resize', onResizeReflow);
+      window.addEventListener('orientationchange', ()=> setTimeout(onResizeReflow, 120));
+
+      // ------- Botões -------
+      btnRestartTop.addEventListener('click', iniciarJogo);
+      btnToggleControls.addEventListener('click', ()=>{
+        const isHidden = getComputedStyle(touchControls).display === 'none';
+        touchControls.style.display = isHidden ? 'grid' : 'none';
+        btnToggleControls.textContent = isHidden ? 'Ocultar Controles' : 'Mostrar Controles';
+        applyTileSize();
+      });
+
+      restartButton.addEventListener('click', ()=>{
+        if(vidas<=0 || tarefas.length===0) iniciarJogo();
+        else{
+          popup.style.display='none';
+          gameActive = true;
+        }
+      });
+
+      // Init
+      applyTileSize();   // calcula tile antes de montar
+      desenharMapa();
+      iniciarJogo();
+      wireTouchControls();
+      // Segunda chamada para garantir cálculo após layout final
+      setTimeout(applyTileSize, 50);
+      setTimeout(applyTileSize, 250);
+    });
+  </script>
+</body>
+</html>
